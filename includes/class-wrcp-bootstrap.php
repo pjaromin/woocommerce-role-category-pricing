@@ -132,21 +132,41 @@ class WRCP_Bootstrap {
             return;
         }
         
-        // Initialize core components in order
+        // Initialize core components one by one to isolate issues
         try {
             WRCP_Role_Manager::get_instance();
+        } catch (Error $e) {
+            error_log('WRCP Error initializing Role Manager: ' . $e->getMessage());
+            return;
+        }
+        
+        try {
             WRCP_Admin_Settings::get_instance();
+        } catch (Error $e) {
+            error_log('WRCP Error initializing Admin Settings: ' . $e->getMessage());
+            return;
+        }
+        
+        try {
             WRCP_Frontend_Display::get_instance();
+        } catch (Error $e) {
+            error_log('WRCP Error initializing Frontend Display: ' . $e->getMessage());
+            return;
+        }
+        
+        try {
             WRCP_Cart_Integration::get_instance();
-            
+        } catch (Error $e) {
+            error_log('WRCP Error initializing Cart Integration: ' . $e->getMessage());
+            return;
+        }
+        
+        try {
             // Initialize WWP compatibility layer
             $compatibility = WRCP_WWP_Compatibility::get_instance();
-        } catch (Exception $e) {
-            // Log any initialization errors
-            if (function_exists('wc_get_logger')) {
-                $logger = wc_get_logger();
-                $logger->error('WRCP initialization error: ' . $e->getMessage(), array('source' => 'wrcp-init'));
-            }
+        } catch (Error $e) {
+            error_log('WRCP Error initializing WWP Compatibility: ' . $e->getMessage());
+            return;
         }
         
         // Force refresh compatibility on first load to clear any old caches
@@ -157,6 +177,9 @@ class WRCP_Bootstrap {
         
         // Ensure Educator role is set up with default settings for testing
         add_action('init', array($this, 'setup_educator_role_for_testing'), 5);
+        
+        // Add a simple debug shortcode for frontend testing
+        add_shortcode('wrcp_status', array($this, 'wrcp_status_shortcode'));
     }
     
     /**
@@ -247,17 +270,26 @@ class WRCP_Bootstrap {
             $current_user_id = get_current_user_id();
             $user = get_user_by('id', $current_user_id);
             
-            if ($user && in_array('educator', $user->roles)) {
+            if ($user) {
                 $settings = get_option('wrcp_settings', array());
-                $educator_enabled = isset($settings['enabled_roles']['educator']['enabled']) && $settings['enabled_roles']['educator']['enabled'];
                 
-                if ($educator_enabled) {
-                    echo '<div class="notice notice-success"><p><strong>WRCP:</strong> Educator role is enabled with ' . 
-                         (isset($settings['enabled_roles']['educator']['base_discount']) ? $settings['enabled_roles']['educator']['base_discount'] : '0') . 
-                         '% base discount.</p></div>';
+                // Show debug info for any admin user
+                echo '<div class="notice notice-info"><p><strong>WRCP Debug:</strong> ';
+                echo 'User roles: ' . implode(', ', $user->roles) . ' | ';
+                echo 'Settings exist: ' . (empty($settings) ? 'No' : 'Yes') . ' | ';
+                
+                if (in_array('educator', $user->roles)) {
+                    $educator_enabled = isset($settings['enabled_roles']['educator']['enabled']) && $settings['enabled_roles']['educator']['enabled'];
+                    echo 'Educator enabled: ' . ($educator_enabled ? 'Yes' : 'No') . ' | ';
+                    
+                    if ($educator_enabled) {
+                        echo 'Base discount: ' . (isset($settings['enabled_roles']['educator']['base_discount']) ? $settings['enabled_roles']['educator']['base_discount'] : '0') . '%';
+                    }
                 } else {
-                    echo '<div class="notice notice-warning"><p><strong>WRCP:</strong> Educator role is not enabled. Please configure it in WooCommerce > Role Category Pricing.</p></div>';
+                    echo 'Not an Educator user';
                 }
+                
+                echo '</p></div>';
             }
         }
     }
@@ -744,6 +776,58 @@ class WRCP_Bootstrap {
             }
         }
     }
+    
+    /**
+     * Add debug banner to footer (if needed)
+     */
+    public function add_debug_banner() {
+        // This method was being called by WordPress but didn't exist
+        // Adding it to prevent the fatal error
+        if (defined('WP_DEBUG') && WP_DEBUG && current_user_can('manage_options')) {
+            echo '<!-- WRCP Debug: Plugin loaded successfully -->';
+        }
+    }
+    
+    /**
+     * Shortcode to display WRCP status for current user
+     */
+    public function wrcp_status_shortcode() {
+        if (!is_user_logged_in()) {
+            return '<p>Please log in to see WRCP status.</p>';
+        }
+        
+        $current_user = wp_get_current_user();
+        $settings = get_option('wrcp_settings', array());
+        
+        $output = '<div style="background: #f9f9f9; padding: 15px; border: 1px solid #ddd; margin: 10px 0;">';
+        $output .= '<h4>WRCP Status</h4>';
+        $output .= '<p><strong>User:</strong> ' . esc_html($current_user->user_login) . '</p>';
+        $output .= '<p><strong>Roles:</strong> ' . esc_html(implode(', ', $current_user->roles)) . '</p>';
+        
+        if (in_array('educator', $current_user->roles)) {
+            $educator_config = isset($settings['enabled_roles']['educator']) ? $settings['enabled_roles']['educator'] : null;
+            
+            if ($educator_config && isset($educator_config['enabled']) && $educator_config['enabled']) {
+                $output .= '<p><strong>Educator Role:</strong> ✅ Enabled</p>';
+                $output .= '<p><strong>Base Discount:</strong> ' . (isset($educator_config['base_discount']) ? $educator_config['base_discount'] : '0') . '%</p>';
+            } else {
+                $output .= '<p><strong>Educator Role:</strong> ❌ Not enabled in WRCP</p>';
+            }
+        }
+        
+        // Check WWP compatibility
+        if (class_exists('WRCP_WWP_Compatibility')) {
+            $compatibility = WRCP_WWP_Compatibility::get_instance();
+            $should_run = $compatibility->should_wrcp_run();
+            $output .= '<p><strong>WRCP Should Run:</strong> ' . ($should_run ? '✅ Yes' : '❌ No') . '</p>';
+        }
+        
+        $output .= '</div>';
+        
+        return $output;
+    }
+    
+
     
 
     

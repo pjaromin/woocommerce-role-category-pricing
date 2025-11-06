@@ -218,6 +218,30 @@ class WRCP_Frontend_Display {
      * @return string Modified price HTML
      */
     public function override_wwp_pricing($price_html, $product) {
+        // Add debug info for logged-in users
+        if (is_user_logged_in() && current_user_can('read')) {
+            $debug_info = '';
+            $current_user = wp_get_current_user();
+            
+            $debug_info .= '<!-- WRCP Debug: ';
+            $debug_info .= 'User: ' . $current_user->user_login . ' ';
+            $debug_info .= 'Roles: ' . implode(', ', $current_user->roles) . ' ';
+            $debug_info .= 'Should modify: ' . ($this->should_modify_pricing() ? 'Yes' : 'No') . ' ';
+            
+            $user_roles = $this->get_current_user_applicable_roles();
+            $debug_info .= 'Applicable roles: ' . implode(', ', $user_roles) . ' ';
+            
+            if (!empty($user_roles)) {
+                $discount = $this->pricing_engine->calculate_discount($product->get_id(), $user_roles);
+                $debug_info .= 'Discount: ' . $discount . '% ';
+            }
+            
+            $debug_info .= '-->';
+            
+            // Add debug info to price HTML
+            $price_html = $debug_info . $price_html;
+        }
+        
         // Only run if we should modify pricing
         if (!$this->should_modify_pricing()) {
             return $price_html;
